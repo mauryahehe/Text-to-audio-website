@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Text to Voice</title>
+<style>
+  :root {
+    --bg:#f3f5fa; --card:#ffffff; --border:#e3e7f0; --text:#1f2433; --muted:#7a8199;
+    --blue:#3b82f6; --blue-dark:#2f6fe0; --blue-soft:#eaf2ff; --dash:#b6d0fb;
+    --green:#16a34a; --green-soft:#e6f6ec; --red:#ef4444; --red-soft:#fdecec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12141b; --card:#1b1e28; --border:#2c3040; --text:#eceefa; --muted:#9298b0;
+            --blue:#5b9bff; --blue-dark:#7bb0ff; --blue-soft:#1f2a44; --dash:#3a5384;
+            --green-soft:#183326; --red-soft:#3a1f22; }
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; }
+  body { background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  svg { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+
+  /* ---------- layout ---------- */
+  .app { min-height:100vh; display:grid; grid-template-columns:64px 1fr; grid-template-rows:60px 1fr auto;
+         grid-template-areas:"top top" "side main" "side bottom"; }
+  .top { grid-area:top; background:var(--card); border-bottom:1px solid var(--border);
+         display:flex; align-items:center; justify-content:space-between; padding:0 20px; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:1.05rem; }
+  .logo { width:32px; height:32px; border-radius:8px; background:var(--blue); color:#fff; display:grid; place-items:center; }
+  .logo svg { width:18px; height:18px; }
+  .tag { color:var(--muted); font-size:.85rem; }
+  .side { grid-area:side; background:var(--card); border-right:1px solid var(--border);
+          display:flex; flex-direction:column; align-items:center; gap:10px; padding-top:18px; }
+  .side button { width:40px; height:40px; border:0; border-radius:10px; background:transparent; color:var(--muted);
+                 cursor:pointer; display:grid; place-items:center; }
+  .side button:hover { background:var(--blue-soft); color:var(--blue); }
+  .side button.active { background:var(--blue); color:#fff; }
+  .main { grid-area:main; display:grid; grid-template-columns:1fr 320px; gap:18px; padding:18px; align-items:start; }
+  .bottom { grid-area:bottom; background:var(--card); border-top:1px solid var(--border);
+            display:flex; align-items:center; gap:18px; padding:14px 20px; font-size:.9rem; }
+  .bottom strong { white-space:nowrap; }
+  .bottom .status { color:var(--muted); white-space:nowrap; }
+  @media (max-width:860px) {
+    .app { grid-template-columns:1fr; grid-template-areas:"top" "main" "bottom"; }
+    .side { display:none; }
+    .main { grid-template-columns:1fr; padding:14px; }
+    .tag { display:none; }
+  }
+
+  .panel { background:var(--card); border:1px solid var(--border); border-radius:14px; }
+  .thead { display:flex; justify-content:space-between; align-items:center; padding:13px 18px;
+           border-bottom:1px solid var(--border); font-size:.85rem; color:var(--muted); font-weight:600; }
+  .thead .links button { margin-left:14px; }
+  .link { background:none; border:0; color:var(--blue); font:inherit; font-weight:600; cursor:pointer; padding:0; }
+  .link:hover { text-decoration:underline; }
+
+  /* ---------- drop zone ---------- */
+  .drop-wrap { padding:18px; }
+  .drop { border:1.5px solid var(--border); background:var(--card); border-radius:12px; transition:.15s; }
+  .drop:focus-within { border-color:var(--blue); box-shadow:0 0 0 3px color-mix(in srgb, var(--blue) 18%, transparent); }
+  .drop.over { border-color:var(--blue); background:var(--blue-soft); }
+  .drop textarea { display:block; width:100%; min-height:230px; padding:16px; border:0; background:transparent;
+                   color:var(--text); font:inherit; font-size:1.05rem; line-height:1.6; resize:vertical; outline:none; border-radius:12px; }
+  .drop textarea::placeholder { color:var(--muted); opacity:.85; }
+  .drop-tip { margin-top:10px; font-size:.82rem; color:var(--muted); }
+
+  /* ---------- result rows ---------- */
+  .empty { padding:26px 18px 30px; text-align:center; color:var(--muted); font-size:.92rem; }
+  .row { display:flex; align-items:center; gap:14px; padding:14px 18px; border-top:1px solid var(--border); flex-wrap:wrap; }
+  .file { width:42px; height:50px; border-radius:8px; background:var(--blue-soft); color:var(--blue); display:grid; place-items:center; flex-shrink:0; }
+  .info { flex:1; min-width:170px; }
+  .info .t { font-weight:700; font-size:.95rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:300px; }
+  .info .s { font-size:.82rem; color:var(--muted); margin-top:3px; }
+  .ready { color:var(--green); font-weight:600; }
+  .ctrl { display:flex; align-items:center; gap:10px; flex:1; min-width:230px; }
+  .play { width:38px; height:38px; border-radius:50%; border:0; background:var(--blue); color:#fff; cursor:pointer; display:grid; place-items:center; flex-shrink:0; }
+  .play svg { width:16px; height:16px; fill:currentColor; stroke:none; }
+  .seekbox { flex:1; }
+  .seekbox input { width:100%; accent-color:var(--blue); margin:0; }
+  .time { display:flex; justify-content:space-between; font-size:.75rem; color:var(--muted); margin-top:2px; }
+  .acts { display:flex; gap:8px; }
+  .btn-dl { display:inline-flex; align-items:center; gap:6px; background:var(--green); color:#fff; border:0; border-radius:8px;
+            padding:9px 14px; font:inherit; font-weight:700; font-size:.88rem; cursor:pointer; }
+  .btn-dl:hover { filter:brightness(1.08); }
+  .btn-del { width:38px; height:38px; border:0; border-radius:8px; background:var(--red-soft); color:var(--red); cursor:pointer; display:grid; place-items:center; }
+  .btn-del:hover { filter:brightness(.96); }
+  .btn-dl svg, .btn-del svg { width:16px; height:16px; }
+
+  /* ---------- settings panel ---------- */
+  .settings { padding:18px; }
+  .settings label, .slider-head { display:flex; justify-content:space-between; font-size:.82rem; font-weight:600; color:var(--muted); margin:0 0 7px; }
+  .slider-head small { color:var(--text); font-weight:600; font-size:.82rem; }
+  .field { margin-bottom:18px; }
+  select { width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--text); font:inherit; }
+  select:focus { outline:2px solid var(--blue); outline-offset:1px; }
+  input[type=range] { width:100%; accent-color:var(--blue); margin:0; }
+  .convert { width:100%; border:0; border-radius:10px; background:var(--blue); color:#fff; padding:14px; font:inherit; font-weight:700;
+             font-size:1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; margin-top:6px; }
+  .convert:hover:not(:disabled) { background:var(--blue-dark); }
+  .convert:disabled { opacity:.65; cursor:wait; }
+  .error { color:var(--red); font-weight:600; font-size:.88rem; margin-top:12px; min-height:1.2em; }
+  .note { color:var(--muted); font-size:.8rem; margin-top:10px; line-height:1.45; }
+
+  /* ---------- bottom progress ---------- */
+  .progress { flex:1; height:6px; background:var(--border); border-radius:99px; overflow:hidden; }
+  .fill { height:100%; width:0; background:var(--blue); border-radius:99px; transition:width .3s; }
+  .progress.busy .fill { width:35%; animation:slide 1.1s ease-in-out infinite; }
+  @keyframes slide { 0% { margin-left:-35%; } 100% { margin-left:100%; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="top">
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg></div>
+      Text to Voice
+    </div>
+    <div class="tag">Free &middot; No sign-up &middot; MP3 output</div>
+  </header>
+
+  <aside class="side">
+    <button class="active" id="navConvert" title="Convert"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg></button>
+    <button id="navRecent" title="Recent conversions"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+  </aside>
+
+  <main class="main">
+
+    <!-- LEFT: text + results -->
+    <section class="panel">
+      <div class="thead">
+        <span>Your text &nbsp;&middot;&nbsp; <span id="n">0</span> / 5000</span>
+        <span class="links"><button class="link" id="sample">Try sample</button><button class="link" id="clear">Clear</button></span>
+      </div>
+      <div class="drop-wrap">
+        <div class="drop" id="drop">
+          <textarea id="text" maxlength="5000" aria-label="Text to convert" placeholder="Write or paste the text you want to hear here..."></textarea>
+        </div>
+        <div class="drop-tip">Tip: you can also drag &amp; drop a .txt file into the box.</div>
+      </div>
+
+      <div class="thead" style="border-top:1px solid var(--border)"><span>Audio previews</span><span id="count"></span></div>
+      <div id="results"></div>
+      <div class="empty" id="empty">Your converted audio will appear here. Listen first, then download only if you like it.</div>
+    </section>
+
+    <!-- RIGHT: settings -->
+    <aside class="panel settings">
+      <div class="field">
+        <label for="lang">Language</label>
+        <select id="lang"></select>
+      </div>
+      <div class="field">
+        <label for="voice">Voice</label>
+        <select id="voice"></select>
+      </div>
+      <div class="field">
+        <div class="slider-head"><span>Speed</span><small id="rateV">Normal</small></div>
+        <input type="range" id="rate" min="-50" max="100" value="0" step="5">
+      </div>
+      <div class="field">
+        <div class="slider-head"><span>Pitch</span><small id="pitchV">Normal</small></div>
+        <input type="range" id="pitch" min="-50" max="50" value="0" step="5">
+      </div>
+      <button class="link" id="reset" style="margin:-6px 0 14px">Reset speed &amp; pitch</button>
+
+      <button class="convert" id="go">
+        <svg viewBox="0 0 24 24"><path d="M5 3l14 9-14 9z" fill="currentColor"/></svg> Convert to Audio
+      </button>
+      <div class="error" id="error"></div>
+      <div class="note">Pick a voice that matches your text's language (e.g. Hindi voice for Hindi text). Changed something? Just convert again and compare.</div>
+    </aside>
+  </main>
+
+  <footer class="bottom">
+    <strong>Recent Conversions</strong>
+    <div class="progress" id="progress"><div class="fill"></div></div>
+    <span class="status" id="status">None yet</span>
+  </footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const MAX_ROWS = 6;
+const SAMPLE = "Hello! This is a sample of how your text will sound. Change the voice, speed or pitch, then convert again until it sounds just right.";
+let voices = [];
+let uid = 0;
+
+/* ---------- helpers ---------- */
+const fmt = s => isFinite(s) ? Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0") : "0:00";
+const label = (v, unit) => v == 0 ? "Normal" : (v > 0 ? "+" : "") + v + unit;
+let dn = null;
+try { dn = new Intl.DisplayNames(["en"], { type: "language" }); } catch (e) {}
+const langName = l => { try { return (dn && dn.of(l)) || l; } catch (e) { return l; } };
+
+function refreshText() {
+  const v = $("text").value;
+  $("n").textContent = v.length;
+  $("drop").classList.toggle("has-text", v.length > 0);
+}
+function refreshCounts() {
+  const n = document.querySelectorAll(".row").length;
+  $("empty").style.display = n ? "none" : "block";
+  $("count").textContent = n ? n + (n === 1 ? " file" : " files") : "";
+  $("status").textContent = n ? n + " this session" : "None yet";
+}
+
+/* ---------- inputs ---------- */
+$("text").addEventListener("input", refreshText);
+$("sample").onclick = () => { $("text").value = SAMPLE; refreshText(); };
+$("clear").onclick = () => { $("text").value = ""; refreshText(); $("text").focus(); };
+$("rate").oninput = () => $("rateV").textContent = label(+$("rate").value, "%");
+$("pitch").oninput = () => $("pitchV").textContent = label(+$("pitch").value, " Hz");
+$("reset").onclick = () => { $("rate").value = 0; $("pitch").value = 0; $("rate").oninput(); $("pitch").oninput(); };
+$("navConvert").onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
+$("navRecent").onclick = () => $("results").scrollIntoView({ behavior: "smooth", block: "center" });
+document.addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") generate(); });
+
+/* drag & drop a .txt file */
+const drop = $("drop");
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => {
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!f) return;
+  if (!/\.txt$/i.test(f.name) && !f.type.startsWith("text/")) { $("error").textContent = "Please drop a .txt file."; return; }
+  const r = new FileReader();
+  r.onload = () => { $("text").value = String(r.result).slice(0, 5000); refreshText(); $("error").textContent = ""; };
+  r.readAsText(f);
+});
+
+/* ---------- voices ---------- */
+function fillVoices() {
+  $("voice").innerHTML = "";
+  voices.filter(v => v.locale === $("lang").value).forEach(v => {
+    const o = document.createElement("option");
+    o.value = v.name;
+    o.textContent = v.name.split("-").slice(2).join("-").replace("Neural", "") + " (" + v.gender + ")";
+    $("voice").appendChild(o);
+  });
+}
+async function loadVoices() {
+  try {
+    const res = await fetch("/api/voices");
+    if (!res.ok) throw new Error();
+    voices = await res.json();
+    const locales = [...new Set(voices.map(v => v.locale))].sort((a, b) => langName(a).localeCompare(langName(b)));
+    locales.forEach(l => {
+      const o = document.createElement("option");
+      o.value = l; o.textContent = langName(l);
+      $("lang").appendChild(o);
+    });
+    $("lang").value = locales.includes("en-US") ? "en-US" : locales[0];
+    fillVoices();
+  } catch (e) { $("error").textContent = "Could not load voices. Please refresh the page."; }
+}
+$("lang").onchange = fillVoices;
+
+/* ---------- result rows ---------- */
+const PLAY = '<svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>';
+const PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
+
+function addRow(it) {
+  const row = document.createElement("div");
+  row.className = "row";
+  row.innerHTML =
+    '<div class="file"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></div>' +
+    '<div class="info"><div class="t"></div><div class="s"></div></div>' +
+    '<div class="ctrl">' +
+      '<button class="play" aria-label="Play or pause">' + PLAY + '</button>' +
+      '<div class="seekbox"><input type="range" min="0" max="100" value="0" step="0.1" aria-label="Seek">' +
+      '<div class="time"><span class="cur">0:00</span><span class="dur">0:00</span></div></div>' +
+    '</div>' +
+    '<div class="acts">' +
+      '<button class="btn-dl"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>Download</button>' +
+      '<button class="btn-del" aria-label="Delete"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>' +
+    '</div>';
+
+  row.querySelector(".t").textContent = it.title;
+  row.querySelector(".s").innerHTML = "";
+  const meta = document.createElement("span");
+  meta.textContent = it.voice + " · " + it.kb + " KB · ";
+  const ok = document.createElement("span");
+  ok.className = "ready"; ok.textContent = "Ready";
+  row.querySelector(".s").append(meta, ok);
+
+  const audio = new Audio(it.url);
+  const play = row.querySelector(".play");
+  const seek = row.querySelector("input[type=range]");
+
+  play.onclick = () => audio.paused ? audio.play() : audio.pause();
+  audio.onplay = () => {
+    document.querySelectorAll(".row").forEach(r => { if (r !== row && r._audio) r._audio.pause(); });
+    play.innerHTML = PAUSE;
+  };
+  audio.onpause = () => play.innerHTML = PLAY;
+  audio.onended = () => { play.innerHTML = PLAY; seek.value = 0; };
+  audio.onloadedmetadata = () => row.querySelector(".dur").textContent = fmt(audio.duration);
+  audio.ontimeupdate = () => {
+    row.querySelector(".cur").textContent = fmt(audio.currentTime);
+    if (isFinite(audio.duration) && audio.duration) seek.value = audio.currentTime / audio.duration * 100;
+  };
+  seek.oninput = () => { if (isFinite(audio.duration)) audio.currentTime = seek.value / 100 * audio.duration; };
+
+  /* download happens only when this button is clicked */
+  row.querySelector(".btn-dl").onclick = () => {
+    const a = document.createElement("a");
+    a.href = it.url; a.download = it.filename;
+    document.body.appendChild(a); a.click(); a.remove();
+  };
+  row.querySelector(".btn-del").onclick = () => {
+    audio.pause(); URL.revokeObjectURL(it.url); row.remove(); refreshCounts();
+  };
+
+  row._audio = audio; row._url = it.url;
+  $("results").prepend(row);
+
+  /* keep only the latest few */
+  const rows = document.querySelectorAll(".row");
+  for (let i = MAX_ROWS; i < rows.length; i++) {
+    rows[i]._audio.pause(); URL.revokeObjectURL(rows[i]._url); rows[i].remove();
+  }
+  refreshCounts();
+  audio.play().catch(() => {});
+}
+
+/* ---------- generate ---------- */
+async function generate() {
+  if ($("go").disabled) return;
+  $("error").textContent = "";
+  const text = $("text").value.trim();
+  if (!text) { $("error").textContent = "Please enter some text first."; $("text").focus(); return; }
+
+  $("go").disabled = true;
+  $("go").lastChild.textContent = " Converting...";
+  $("progress").classList.add("busy");
+  $("status").textContent = "Generating...";
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice: $("voice").value, rate: +$("rate").value, pitch: +$("pitch").value })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Something went wrong. Please try again.");
+    }
+    const blob = await res.blob();
+    const words = text.split(/\s+/);
+    const title = words.slice(0, 7).join(" ") + (words.length > 7 ? "..." : "");
+    const base = (words.slice(0, 4).join("_").replace(/[^\p{L}\p{N}_]/gu, "") || "speech");
+    const opt = $("voice").selectedOptions[0];
+    addRow({
+      url: URL.createObjectURL(blob),
+      title,
+      voice: opt ? opt.textContent : $("voice").value,
+      kb: Math.max(1, Math.round(blob.size / 1024)),
+      filename: base + ".mp3"
+    });
+    $("results").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (e) {
+    $("error").textContent = e.message;
+    refreshCounts();
+  } finally {
+    $("go").disabled = false;
+    $("go").lastChild.textContent = " Convert to Audio";
+    $("progress").classList.remove("busy");
+  }
+}
+$("go").onclick = generate;
+
+refreshText();
+refreshCounts();
+loadVoices();
+</script>
+</body>
+</html>
